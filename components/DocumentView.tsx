@@ -5,6 +5,7 @@ import { getInk, putInk, type StoredDoc } from "@/lib/idb";
 import { extractText, openPdf, renderPageToDataUrl, type PdfDoc } from "@/lib/pdf";
 import { DEFAULT_PROBLEM } from "@/lib/lesson";
 import MarginNote, { type NoteResult } from "@/components/MarginNote";
+import { speakText, stopSpeech, unlockSpeech } from "@/lib/speech";
 
 type Tool = "pen" | "marker" | "eraser";
 type Supports = { simpler: boolean; spanish: boolean; readAloud: boolean };
@@ -36,6 +37,7 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
   const [listening, setListening] = useState(false);
   const [question, setQuestion] = useState("");
   const [micMsg, setMicMsg] = useState("");
+  const [speechMsg, setSpeechMsg] = useState("");
   const questionRef = useRef("");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recRef = useRef<any>(null);
@@ -209,12 +211,17 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
   }
 
   function speak(text: string) {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = supports.spanish ? "es-MX" : "en-US";
-    u.rate = 0.95;
-    window.speechSynthesis.speak(u);
+    setSpeechMsg("");
+    speakText(text, supports.spanish ? "es-MX" : "en-US", (s) => {
+      if (s === "speaking") setSpeechMsg(supports.spanish ? "Leyendo en voz alta…" : "Reading aloud…");
+      if (s === "done") setSpeechMsg("");
+      if (s === "error")
+        setSpeechMsg(
+          supports.spanish
+            ? "El navegador bloqueó la voz. Toca «Escuchar»."
+            : "The browser blocked the voice. Tap Listen to hear it."
+        );
+    });
   }
 
   function openAsk() {
@@ -232,7 +239,7 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
       setMicMsg("Voice isn't available here. Tap the mic on the keyboard to dictate, or type your question.");
       return;
     }
-    window.speechSynthesis?.cancel();
+    stopSpeech();
     const rec = new SR();
     rec.lang = supports.spanish ? "es-MX" : "en-US";
     rec.interimResults = true;
@@ -312,7 +319,7 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
     }
     setLoading(true);
     setResult(null);
-    if (supports.readAloud && "speechSynthesis" in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+    if (supports.readAloud) unlockSpeech();
     try {
       const res = await fetch("/api/tutor", {
         method: "POST",
@@ -389,7 +396,14 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
               <option key={k}>{k}</option>
             ))}
           </select>
-          <button className="tb-btn" aria-pressed={supports.readAloud} onClick={() => toggle("readAloud")}>
+          <button
+            className="tb-btn"
+            aria-pressed={supports.readAloud}
+            onClick={() => {
+              unlockSpeech();
+              toggle("readAloud");
+            }}
+          >
             Read aloud
           </button>
           <button className="tb-btn" aria-pressed={supports.simpler} onClick={() => toggle("simpler")}>
@@ -517,6 +531,7 @@ export default function DocumentView({ doc, onBack }: { doc: StoredDoc; onBack: 
                 {micMsg && <p className="mic-msg">{micMsg}</p>}
               </div>
             )}
+            {speechMsg && <p className="mic-msg">{speechMsg}</p>}
           </MarginNote>
         )}
       </div>
